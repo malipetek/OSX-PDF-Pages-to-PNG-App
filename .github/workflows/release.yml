@@ -1,0 +1,71 @@
+name: Release macOS app
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  build-sign-notarize:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          brew update
+          brew install makeicns
+
+      - name: Build bundle
+        run: |
+          swiftc -O -framework AppKit -framework CoreGraphics main.swift -o PDFToPNG
+          mkdir -p PDFToPNG.app/Contents/{MacOS,Resources}
+          cp PDFToPNG PDFToPNG.app/Contents/MacOS/PDFToPNG
+          cp Info.plist PDFToPNG.app/Contents/Info.plist
+          makeicns -32 icon.png
+          cp image.icns PDFToPNG.app/Contents/Resources/Icon.icns
+
+      - name: Import signing certificate
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          SECURITY_DIR="$RUNNER_TEMP/keychain"
+          KEYCHAIN="$SECURITY_DIR/build.keychain"
+          mkdir -p "$SECURITY_DIR"
+          security create-keychain -p "$P12_PASSWORD" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$P12_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          echo "$P12_BASE64" | base64 --decode > "$SECURITY_DIR/cert.p12"
+          security import "$SECURITY_DIR/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security find-identity -v -p codesigning
+
+      - name: Codesign
+        env:
+          SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }} # e.g. "Developer ID Application: Your Name (TEAMID)"
+        run: |
+          codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" PDFToPNG.app
+          codesign --verify --deep --strict --verbose=2 PDFToPNG.app
+
+      - name: Zip for notarization
+        run: ditto -c -k --keepParent PDFToPNG.app PDFToPNG-macos.zip
+
+      - name: Notarize
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_APP_PASSWORD }} # app-specific password
+        run: |
+          xcrun notarytool submit PDFToPNG-macos.zip \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --wait
+
+      - name: Staple
+        run: xcrun stapler staple PDFToPNG.app
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PDFToPNG-macos.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

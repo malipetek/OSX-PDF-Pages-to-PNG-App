@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import ImageIO
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -58,7 +59,103 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let outDir = parentDir.appendingPathComponent("\(baseName) pages")
         try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
         convert(pdfURL: pdfURL, outDir: outDir)
+        let imagesDir = outDir.appendingPathComponent("images")
+        try? FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+        extractImages(pdfURL: pdfURL, imagesDir: imagesDir)
         NSWorkspace.shared.open(outDir)
+    }
+
+    func extractImages(pdfURL: URL, imagesDir: URL) {
+        guard let doc = CGPDFDocument(pdfURL as CFURL) else { return }
+        let pageCount = doc.numberOfPages
+        for i in 1...pageCount {
+            guard let page = doc.page(at: i) else { continue }
+            guard let pageDict = page.dictionary else { continue }
+            var resDict: CGPDFDictionaryRef?
+            if !CGPDFDictionaryGetDictionary(pageDict, "Resources", &resDict) { continue }
+            guard let resources = resDict else { continue }
+
+            let table = CGPDFOperatorTableCreate()!
+            typealias CCallback = @convention(c) (CGPDFScannerRef?, UnsafeMutableRawPointer?) -> Void
+            class ScannerContext {
+                let resources: CGPDFDictionaryRef
+                let imagesDir: URL
+                let pageIndex: Int
+                var imageIndex: Int = 0
+                init(resources: CGPDFDictionaryRef, imagesDir: URL, pageIndex: Int) {
+                    self.resources = resources
+                    self.imagesDir = imagesDir
+                    self.pageIndex = pageIndex
+                }
+            }
+
+            let callback: CCallback = { scanner, info in
+                guard let scanner, let info else { return }
+                let ctxPtr = info.assumingMemoryBound(to: ScannerContext.self)
+                let ctx = ctxPtr.pointee
+                var namePtr: UnsafePointer<Int8>? = nil
+                if !CGPDFScannerPopName(scanner, &namePtr) { return }
+                guard let namePtr else { return }
+                let name = String(cString: namePtr)
+                var xobjDictRef: CGPDFDictionaryRef?
+                if !CGPDFDictionaryGetDictionary(ctx.resources, "XObject", &xobjDictRef) { return }
+                guard let xobjDict = xobjDictRef else { return }
+                var objRef: CGPDFObjectRef?
+                if !CGPDFDictionaryGetObject(xobjDict, name, &objRef) { return }
+                guard let obj = objRef else { return }
+                var streamRef: CGPDFStreamRef?
+                if !CGPDFObjectGetValue(obj, .stream, &streamRef) { return }
+                guard let stream = streamRef else { return }
+                guard let dict = CGPDFStreamGetDictionary(stream) else { return }
+                var subtypePtr: UnsafePointer<Int8>? = nil
+                if !CGPDFDictionaryGetName(dict, "Subtype", &subtypePtr) { return }
+                guard let subtypePtr, String(cString: subtypePtr) == "Image" else { return }
+
+                var df = CGPDFDataFormat.raw
+                guard let cfData = CGPDFStreamCopyData(stream, &df) else { return }
+                var image: CGImage?
+                if let src = CGImageSourceCreateWithData(cfData, nil) {
+                    image = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                }
+
+                if image == nil {
+                    var widthI: Int = 0
+                    var heightI: Int = 0
+                    var bpcI: Int = 8
+                    _ = CGPDFDictionaryGetInteger(dict, "Width", &widthI)
+                    _ = CGPDFDictionaryGetInteger(dict, "Height", &heightI)
+                    _ = CGPDFDictionaryGetInteger(dict, "BitsPerComponent", &bpcI)
+                    var csNamePtr: UnsafePointer<Int8>? = nil
+                    _ = CGPDFDictionaryGetName(dict, "ColorSpace", &csNamePtr)
+                    let comps = (csNamePtr != nil && String(cString: csNamePtr!) == "DeviceGray") ? 1 : 3
+                    let width = widthI, height = heightI, bpc = bpcI
+                    let bytesPerRow = width * comps * bpc / 8
+                    if let provider = CGDataProvider(data: cfData) {
+                        let space = (comps == 1 ? CGColorSpaceCreateDeviceGray() : CGColorSpaceCreateDeviceRGB())
+                        let bmpInfo = CGBitmapInfo()
+                        image = CGImage(width: width, height: height, bitsPerComponent: bpc, bitsPerPixel: comps * bpc, bytesPerRow: bytesPerRow, space: space, bitmapInfo: bmpInfo, provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+                    }
+                }
+
+                guard let finalImage = image else { return }
+                let rep = NSBitmapImageRep(cgImage: finalImage)
+                guard let data = rep.representation(using: .png, properties: [:]) else { return }
+                let fname = String(format: "page_%03d_img_%03d.png", ctx.pageIndex, ctx.imageIndex + 1)
+                let url = ctx.imagesDir.appendingPathComponent(fname)
+                try? data.write(to: url)
+                ctxPtr.pointee.imageIndex += 1
+            }
+
+            CGPDFOperatorTableSetCallback(table, "Do", unsafeBitCast(callback, to: CGPDFOperatorCallback.self))
+            let cs = CGPDFContentStreamCreateWithPage(page)
+            let ctx = ScannerContext(resources: resources, imagesDir: imagesDir, pageIndex: i)
+            let ctxPtr = UnsafeMutablePointer<ScannerContext>.allocate(capacity: 1)
+            ctxPtr.initialize(to: ctx)
+            let scanner = CGPDFScannerCreate(cs, table, ctxPtr)
+            _ = CGPDFScannerScan(scanner)
+            ctxPtr.deinitialize(count: 1)
+            ctxPtr.deallocate()
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
