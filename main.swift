@@ -138,7 +138,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
 
                 guard let finalImage = image else { return }
-                let rep = NSBitmapImageRep(cgImage: finalImage)
+                var alphaMask: CGImage? = nil
+                var smaskStreamRef: CGPDFStreamRef?
+                if let dict = CGPDFStreamGetDictionary(stream), CGPDFDictionaryGetStream(dict, "SMask", &smaskStreamRef), let smaskStream = smaskStreamRef {
+                    var df2 = CGPDFDataFormat.raw
+                    if let smaskData = CGPDFStreamCopyData(smaskStream, &df2) {
+                        if let src = CGImageSourceCreateWithData(smaskData, nil) {
+                            alphaMask = CGImageSourceCreateImageAtIndex(src, 0, nil)
+                        }
+                        if alphaMask == nil {
+                            var w: Int = 0
+                            var h: Int = 0
+                            var bpc: Int = 8
+                            if let smDict = CGPDFStreamGetDictionary(smaskStream) {
+                                _ = CGPDFDictionaryGetInteger(smDict, "Width", &w)
+                                _ = CGPDFDictionaryGetInteger(smDict, "Height", &h)
+                                _ = CGPDFDictionaryGetInteger(smDict, "BitsPerComponent", &bpc)
+                            }
+                            if let provider = CGDataProvider(data: smaskData) {
+                                let gray = CGColorSpaceCreateDeviceGray()
+                                let bytesPerRow = max(1, w * bpc / 8)
+                                alphaMask = CGImage(width: w, height: h, bitsPerComponent: bpc, bitsPerPixel: bpc, bytesPerRow: bytesPerRow, space: gray, bitmapInfo: CGBitmapInfo(), provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+                            }
+                        }
+                    }
+                }
+
+                let w = finalImage.width
+                let h = finalImage.height
+                let cs = CGColorSpaceCreateDeviceRGB()
+                guard let outCtx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                let rect = CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h))
+                outCtx.clear(rect)
+                if let mask = alphaMask { outCtx.clip(to: rect, mask: mask) }
+                outCtx.draw(finalImage, in: rect)
+                guard let pngImage = outCtx.makeImage() else { return }
+                let rep = NSBitmapImageRep(cgImage: pngImage)
                 guard let data = rep.representation(using: .png, properties: [:]) else { return }
                 let fname = String(format: "page_%03d_img_%03d.png", ctx.pageIndex, ctx.imageIndex + 1)
                 let url = ctx.imagesDir.appendingPathComponent(fname)

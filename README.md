@@ -36,9 +36,8 @@ cp Info.plist PDFToPNG.app/Contents/Info.plist
 
 # Optional: set the app icon
 brew install makeicns
-ln -sf icon.png image.png
-makeicns -32 image.png
-cp image.icns PDFToPNG.app/Contents/Resources/Icon.icns
+makeicns -32 icon.png
+cp icon.icns PDFToPNG.app/Contents/Resources/Icon.icns
 ```
 
 ## Code Map

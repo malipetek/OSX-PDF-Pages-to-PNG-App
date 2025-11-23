@@ -22,7 +22,7 @@ jobs:
           cp PDFToPNG PDFToPNG.app/Contents/MacOS/PDFToPNG
           cp Info.plist PDFToPNG.app/Contents/Info.plist
           makeicns -32 icon.png
-          cp image.icns PDFToPNG.app/Contents/Resources/Icon.icns
+          cp icon.icns PDFToPNG.app/Contents/Resources/Icon.icns
 
       - name: Import signing certificate
         env:
