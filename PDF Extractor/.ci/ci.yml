@@ -1,0 +1,38 @@
+name: PDF Extractor
+
+triggers:
+  - push
+  - pull_request
+
+workflows:
+  pdf-extractor-workflow:
+    name: Build and Archive
+    environment:
+      xcode: 15.4
+      macos: 14
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v4
+        
+      - name: Build Archive
+        run: |
+          xcodebuild -project "PDF Extractor.xcodeproj" \
+            -scheme "PDF Extractor" \
+            -configuration Release \
+            -destination "generic/platform=macOS" \
+            -archivePath "PDFExtractor.xcarchive" \
+            archive
+            
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "PDFExtractor.xcarchive" \
+            -exportPath "." \
+            -exportOptionsPlist "ExportOptions.plist"
+            
+      - name: Upload to App Store
+        uses: apple-actions/upload-build-to-app-store-connect@v1
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}

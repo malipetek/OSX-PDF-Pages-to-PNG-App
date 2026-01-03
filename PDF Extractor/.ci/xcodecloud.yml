@@ -1,0 +1,49 @@
+name: PDF Extractor Build
+
+triggers:
+  - push
+  - pull_request
+  - tag
+
+environment:
+  xcode: 15.4
+  macos: 14
+
+workflows:
+  PDF Extractor Build and Archive:
+    name: Build and Archive PDF Extractor
+    max_build_duration: 30
+    
+    environment:
+      variables:
+        BUNDLE_ID: malipetek.PDF-Extractor
+        TEAM_ID: KD86G46493
+    
+    actions:
+      - name: Clone repo
+        uses: actions/checkout@v4
+        
+      - name: Build Archive
+        run: |
+          xcodebuild -project PDF\ Extractor.xcodeproj \
+            -scheme PDF\ Extractor \
+            -configuration Release \
+            -destination generic/platform=macOS \
+            -archivePath PDFExtractor.xcarchive \
+            archive ONLY_ACTIVE_ARCH=NO
+            
+      - name: Export for App Store
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath PDFExtractor.xcarchive \
+            -exportPath . \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates
+            
+      - name: Upload to App Store Connect
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path: PDF\ Extractor.ipa
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}

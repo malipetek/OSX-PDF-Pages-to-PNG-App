@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>PDFToPNG</string>
+    <string>PDF Extractor</string>
     <key>CFBundleIdentifier</key>
-    <string>com.malipetek.pdftopng</string>
+    <string>malipetek.PDF-Extractor</string>
     <key>CFBundleExecutable</key>
-    <string>PDFToPNG</string>
+    <string>PDFExtractor</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -16,6 +16,12 @@
     <string>1</string>
     <key>CFBundleIconFile</key>
     <string>Icon.icns</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2025 Ali Petek. All rights reserved.</string>
+    <key>CFBundleGetInfoString</key>
+    <string>PDF Extractor - Extract images and everything from PDF pages</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
